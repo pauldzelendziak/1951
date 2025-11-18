@@ -8,4 +8,10 @@ abstract class GameConstants {
 
   /// Milliseconds between allowed knife throws (cooldown).
   static const double knifeThrowCooldownMs = 350;
+
+  /// Chance (0-1) that a level spawns apples on the target.
+  static const double appleSpawnChance = 0.4;
+
+  /// Maximum number of apples that may appear simultaneously on a target.
+  static const int maxApplesOnTarget = 2;
 }

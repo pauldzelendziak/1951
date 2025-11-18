@@ -9,6 +9,7 @@ environment:
 
 dependencies:
   flame: ^1.7.0
+  flame_audio: ^2.11.11
   flutter:
     sdk: flutter
   shared_preferences: ^2.5.3
@@ -18,11 +19,11 @@ dependencies:
 #      ref: privacy_plugin_no_appsflyer
 
 dev_dependencies:
+  flutter_launcher_icons: ^0.14.3
   flutter_test:
     sdk: flutter
   integration_test:
     sdk: flutter
-  flutter_launcher_icons: ^0.14.3
   very_good_analysis: ^9.0.0
 
 # The following section is specific to Flutter packages.
@@ -37,6 +38,7 @@ flutter:
   - assets/fonts/
   - assets/images/targets/
   - assets/images/knives/
+  - assets/audio/
 
 flutter_launcher_icons:
   android: true

@@ -1,12 +1,123 @@
 import 'package:flutter/material.dart';
 
 import 'package:knife_hit/core/constants/colors.dart';
+import 'package:knife_hit/data/models/game_progress.dart';
+import 'package:knife_hit/data/storage/game_progress_storage.dart';
 import 'package:knife_hit/presentation/screens/game_screen.dart';
 
 /// Home screen of the game showing main actions: Play, Shop, Stats, etc.
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   /// Creates the `HomeScreen`.
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  GameProgress? _cachedProgress;
+  bool _loading = true;
+  final GameProgressStorage _progressStorage = const GameProgressStorage();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProgress();
+  }
+
+  Future<void> _loadProgress() async {
+    final GameProgress? progress = await _progressStorage.read();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _cachedProgress = progress;
+      _loading = false;
+    });
+  }
+
+  bool get _hasProgress => _cachedProgress != null;
+
+  Future<void> _handlePlay() async {
+    if (_loading) {
+      await _startNewGame();
+      return;
+    }
+    final _PlaySelection? selection = await showDialog<_PlaySelection>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: AppColors.dialogBackground,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('Choose an action'),
+          actionsAlignment: MainAxisAlignment.spaceBetween,
+          actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          actions: [
+            TextButton(
+              onPressed: _hasProgress
+                  ? () => Navigator.of(dialogContext).pop(_PlaySelection.continueGame)
+                  : null,
+              child: const Text('Continue'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(_PlaySelection.newGame),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: AppColors.dark,
+              ),
+              child: const Text('New game'),
+            ),
+          ],
+        );
+      },
+    );
+
+    switch (selection) {
+      case _PlaySelection.continueGame:
+        await _continueGame();
+        break;
+      case _PlaySelection.newGame:
+        await _startNewGame();
+        break;
+      case null:
+        break;
+    }
+  }
+
+  Future<void> _continueGame() async {
+    final GameProgress? progress = _cachedProgress ?? await _progressStorage.read();
+    if (progress == null) {
+      await _startNewGame();
+      return;
+    }
+    await _launchGame(progress);
+  }
+
+  Future<void> _startNewGame() async {
+    await _progressStorage.clear();
+    if (mounted) {
+      setState(() {
+        _cachedProgress = null;
+        _loading = false;
+      });
+    }
+    await _launchGame(null);
+  }
+
+  Future<void> _launchGame(GameProgress? progress) async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+      });
+    }
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => GameScreen(initialProgress: progress),
+      ),
+    );
+    await _loadProgress();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +139,7 @@ class HomeScreen extends StatelessWidget {
                 const Spacer(flex: 2),
                 const _GameLogo(),
                 const SizedBox(height: 32),
-                const _PlayButton(),
+                _PlayButton(onTap: _handlePlay),
                 const SizedBox(height: 24),
                 HomeIconButton(
                   icon: Icons.emoji_events_outlined,
@@ -46,6 +157,8 @@ class HomeScreen extends StatelessWidget {
     );
   }
 }
+
+enum _PlaySelection { continueGame, newGame }
 
 class _TopBar extends StatelessWidget {
   const _TopBar();
@@ -68,6 +181,7 @@ class _TopBar extends StatelessWidget {
         Text('KNIFE HIT', style: titleStyle),
         HomeIconButton(
           icon: Icons.storefront_outlined,
+          
           label: 'Shop',
           onTap: () {},
         ),
@@ -106,7 +220,9 @@ class _GameLogo extends StatelessWidget {
 }
 
 class _PlayButton extends StatelessWidget {
-  const _PlayButton();
+  const _PlayButton({required this.onTap});
+
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -117,12 +233,7 @@ class _PlayButton extends StatelessWidget {
     );
 
     return InkWell(
-      onTap: () {
-        Navigator.push<Widget>(
-          context,
-          MaterialPageRoute(builder: (_) => const GameScreen()),
-        );
-      },
+      onTap: onTap,
       borderRadius: BorderRadius.circular(100),
       child: Ink(
         width: 180,
