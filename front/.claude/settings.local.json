@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(/Users/nikolai/Projects/VideoSlots/unique-apps/templates/app-templates/back/**)",
+      "Read(/Users/nikolai/Projects/VideoSlots/unique-apps/templates/app-templates/back/**)",
+      "Bash(flutter doctor:*)",
+      "Bash(flutter clean:*)",
+      "Bash(./gradlew:*)",
+      "Read(/Users/nikolai/Projects/development/flutter/bin/**)",
+      "Bash(/Users/nikolai/Projects/development/flutter/bin/flutter --version)",
+      "Bash(./android/gradlew :app:compileFlutterBuildDebug:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

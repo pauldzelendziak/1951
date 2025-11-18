@@ -1,0 +1,44 @@
+# App Configuration, filled in manually
+app:
+  name: 'App Name'
+  bundle_id: 'com.example.app'
+  number: '1'
+  app_id: 'example'
+  domain: 'example.com'
+  localization: EN
+
+# AppsFlyer API Token, filled in manually
+appsflyer:
+  appsflyer_token: ''  # Keep quotes for empty string
+  appsflyer_dev_key: ''
+
+# Appmetrica settings, filled in manually
+appmetrica:
+  app_id: ''
+  post_api_key: ''
+  sdk_key: ''
+
+# Tracking Configuration, filled in manually
+tracking:
+  link_id: ''
+  traffle_link_id: ''
+
+# Privacy Settings, filled in automatically
+privacy:
+  callback: ''
+  accepted_param: ''
+  developer_name: ''
+
+notifications:
+  skip_param: ''
+  token_param: ''
+
+# Request Parameters, filled in automatically
+request_params:
+  installer_param: ''
+  user_id_param: ''
+  oaid_param: ''
+  google_ad_id_param: ''
+  appsflyer_id_param: ''
+  appsflyer_source_param: ''
+  appsflyer_campaign_param: ''

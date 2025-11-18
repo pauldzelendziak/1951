@@ -1,0 +1,46 @@
+name: knife_hit
+description: "Casual knife throwing game inspired by Knife Hit."
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  flame: ^1.7.0
+  flutter:
+    sdk: flutter
+  shared_preferences: ^2.5.3
+#  privacy_plugin:
+#    git:
+#      url: https://gitlab.com/casino-slots/webview-plugin.git
+#      ref: privacy_plugin_no_appsflyer
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_launcher_icons: ^0.14.3
+  very_good_analysis: ^9.0.0
+
+# The following section is specific to Flutter packages.
+flutter:
+  uses-material-design: true
+
+  assets:
+  - assets/icon/
+  - assets/images/
+  - assets/images/backgrounds/
+  - assets/images/buttons/
+  - assets/fonts/
+  - assets/images/targets/
+  - assets/images/knives/
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/icon.jpg"
+  adaptive_icon_background: "#FFFFFF00"
+  adaptive_icon_foreground: "assets/icon/icon.jpg"
