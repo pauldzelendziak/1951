@@ -40,6 +40,13 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
   int _comboCount = 0;
   int _initialKnifeCount = 0;
   int _successfulSticks = 0;
+  int _appleCoinsAtLevelStart = 0;
+  int _sessionKnivesThrown = 0;
+  int _sessionSuccessfulHits = 0;
+  int _sessionApplesHit = 0;
+  int _sessionBossWins = 0;
+  int _sessionHighestLevelReached = 1;
+  int _sessionScoreEarned = 0;
   bool _levelCompleteTriggered = false;
   bool _levelFailedTriggered = false;
   int lastLevelScore = 0;
@@ -51,6 +58,13 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
   late LevelSettings _currentLevelSettings;
   final BossProgressTracker bossProgress = BossProgressTracker();
   String _equippedKnifeSprite = AssetPaths.knifeTanto;
+  String get equippedKnifeAsset => _equippedKnifeSprite;
+  int get sessionKnivesThrown => _sessionKnivesThrown;
+  int get sessionSuccessfulHits => _sessionSuccessfulHits;
+  int get sessionApplesHit => _sessionApplesHit;
+  int get sessionBossWins => _sessionBossWins;
+  int get sessionHighestLevelReached => _sessionHighestLevelReached;
+  int get sessionScoreEarned => _sessionScoreEarned;
   BossSpotlightOverlay? _bossOverlay;
   final GameProgress? _initialProgress;
   final LevelStateSnapshot? _initialLevelSnapshot;
@@ -66,6 +80,7 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
     levelIndex = initialProgress?.activeLevel?.levelIndex ??
         initialProgress?.levelIndex ??
         1;
+    _sessionHighestLevelReached = levelIndex;
     final int inferredInitialKnives =
       _initialLevelSnapshot?.initialKnifeCount ??
         _currentLevelSettings.knifeCount;
@@ -77,6 +92,7 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
     knivesLeft.value = knivesRemaining;
     levelCompleted.value = false;
     levelFailed.value = false;
+    _appleCoinsAtLevelStart = appleCoins.value;
     if (initialProgress != null) {
       appleCoins.value = initialProgress.appleCoins;
       score.value = initialProgress.score;
@@ -85,6 +101,7 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
       };
       _equippedKnifeSprite = initialProgress.equippedKnifeAsset;
       bossProgress.applyDefeatedLevels(initialProgress.defeatedBossLevels);
+      _appleCoinsAtLevelStart = appleCoins.value;
     }
   }
 
@@ -133,19 +150,34 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
 
     // find next available knife
     KnifeComponent? next;
-    for (final k in knives) {
-      if (!k.isFlying && !k.isStuck) {
-        next = k;
+    int nextIndex = -1;
+    for (int i = 0; i < knives.length; i++) {
+      if (!knives[i].isFlying && !knives[i].isStuck) {
+        next = knives[i];
+        nextIndex = i;
         break;
       }
     }
     if (next == null) return;
+
+    // Remove idle animation from thrown knife
+    next.removeIdleAnimation();
+
+    // Show and add idle animation to the next waiting knife
+    if (nextIndex + 1 < knives.length) {
+      final nextWaitingKnife = knives[nextIndex + 1];
+      if (!nextWaitingKnife.isFlying && !nextWaitingKnife.isStuck) {
+        nextWaitingKnife.opacity = 1.0; // Показуємо наступний ніж
+        _addIdleKnifeAnimation(nextWaitingKnife, nextWaitingKnife.position.y);
+      }
+    }
 
     // compute direction: from knife to target center
     final targetComp = target;
     final dir = (targetComp.absoluteCenter - next.absoluteCenter).normalized();
 
     next.throwKnife(dir);
+    _sessionKnivesThrown += 1;
     knivesRemaining = math.max(0, knivesRemaining - 1);
     knivesLeft.value = knivesRemaining;
     _lastThrowAt = now;
@@ -165,6 +197,7 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
 
   void addAppleCoin() {
     appleCoins.value += 1;
+    _sessionApplesHit += 1;
   }
 
   void triggerSlowMotion({double scale = 0.3, double duration = 0.5}) {
@@ -188,16 +221,48 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
     int bonusApple = hitApple ? 20 : 0;
     final int delta = ((base + bonusApple) * multiplier).round();
     score.value += delta;
+    _sessionScoreEarned += delta;
 
     _successfulSticks += 1;
+    _sessionSuccessfulHits += 1;
+    
+    // Add screen shake effect on successful hit
+    _addScreenShake(intensity: hitApple ? 6.0 : 3.0);
+    
     if (!_levelCompleteTriggered && _successfulSticks >= _initialKnifeCount) {
       _handleLevelComplete(boss: _currentLevelSettings.isBossLevel);
     }
   }
+  
+  /// Adds a camera shake effect to the entire game view
+  void _addScreenShake({double intensity = 3.0}) {
+    camera.viewport.add(
+      SequenceEffect([
+        MoveEffect.by(
+          Vector2(intensity, 0),
+          EffectController(duration: 0.03),
+        ),
+        MoveEffect.by(
+          Vector2(-intensity * 2, intensity),
+          EffectController(duration: 0.03),
+        ),
+        MoveEffect.by(
+          Vector2(intensity, -intensity * 2),
+          EffectController(duration: 0.03),
+        ),
+        MoveEffect.by(
+          Vector2(0, intensity),
+          EffectController(duration: 0.03),
+        ),
+      ]),
+    );
+  }
 
   /// Award points for completing a level. If [boss] is true, award boss points.
   void awardLevelComplete({bool boss = false}) {
-    score.value += boss ? 200 : 50;
+    final int award = boss ? 200 : 50;
+    score.value += award;
+    _sessionScoreEarned += award;
   }
 
   Future<void> startNextLevel({int? knifeCountOverride}) async {
@@ -234,7 +299,8 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
     await _initializeLevel(
       resetScore: true,
       settingsOverride: _currentLevelSettings,
-      knifeCountOverride: _currentLevelSettings.knifeCount,
+      levelSnapshot: null,
+      restoreKnifeState: false,
     );
     resumeEngine();
   }
@@ -244,17 +310,23 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
     LevelSettings? settingsOverride,
     int? knifeCountOverride,
     LevelStateSnapshot? levelSnapshot,
+    bool restoreKnifeState = true,
   }) async {
     _currentLevelSettings =
         settingsOverride ?? LevelSettings.forLevel(levelIndex);
+    _sessionHighestLevelReached =
+        math.max(_sessionHighestLevelReached, levelIndex);
+    _appleCoinsAtLevelStart = appleCoins.value;
     isBossLevel.value = _currentLevelSettings.isBossLevel;
     _applyBossVisuals();
     final LevelStateSnapshot? snapshotForLevel = levelSnapshot;
     final int count = knifeCountOverride ??
-        snapshotForLevel?.initialKnifeCount ??
-        _currentLevelSettings.knifeCount;
+      snapshotForLevel?.initialKnifeCount ??
+      _currentLevelSettings.knifeCount;
     _initialKnifeCount = count;
-    final int remaining = snapshotForLevel?.knivesRemaining ?? count;
+    final int remaining = restoreKnifeState
+      ? (snapshotForLevel?.knivesRemaining ?? count)
+      : count;
     knivesRemaining = remaining.clamp(0, count).toInt();
     knivesLeft.value = knivesRemaining;
     _successfulSticks = 0;
@@ -279,6 +351,10 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
       (count - knivesRemaining).clamp(0, count).toInt();
     await _respawnPlayerKnives(count);
     _markUsedKnives(count - knivesRemaining);
+
+    if (snapshotForLevel != null && kDebugMode) {
+      debugPrint('[LevelInit] adopted snapshot knives=${snapshotForLevel.targetState.stuckKnives.length} apples=${snapshotForLevel.targetState.appleSnapshots.length}');
+    }
   }
 
   Future<void> _respawnPlayerKnives(int count) async {
@@ -290,15 +366,43 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
     const double knifeBaselineOffset = 110;
     final Sprite knifeSprite = await loadSprite(_equippedKnifeSprite);
     for (int i = 0; i < count; i++) {
+      final baseY = size.y - knifeBaselineOffset;
       final knife = KnifeComponent()
         ..sprite = knifeSprite
         ..assetKey = _equippedKnifeSprite
         ..size = Vector2(40, 120)
         ..anchor = Anchor.center
-        ..position = Vector2(size.x / 2, size.y - knifeBaselineOffset);
+        ..position = Vector2(size.x / 2, baseY);
       knives.add(knife);
       await add(knife);
+      
+      // Тільки перший ніж видимий і анімується
+      if (i == 0) {
+        _addIdleKnifeAnimation(knife, baseY);
+        knife.opacity = 1.0;
+      } else {
+        knife.opacity = 0.0; // Приховуємо всі інші ножі
+      }
     }
+  }
+  
+  /// Adds a gentle up-down floating animation to the waiting knife
+  void _addIdleKnifeAnimation(KnifeComponent knife, double baseY) {
+    const floatDistance = 8.0; // pixels to float up/down
+    const floatDuration = 0.8; // seconds for one cycle
+    
+    final effect = MoveEffect.by(
+      Vector2(0, -floatDistance),
+      EffectController(
+        duration: floatDuration,
+        curve: Curves.easeInOut,
+        infinite: true,
+        alternate: true,
+      ),
+    );
+    
+    knife.add(effect);
+    knife.setIdleEffect(effect);
   }
 
   void _markUsedKnives(int usedCount) {
@@ -322,6 +426,7 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
     lastLevelScore = score.value;
     levelCompleted.value = true;
     if (boss) {
+      _sessionBossWins += 1;
       final BossLevelDefinition? definition =
           _currentLevelSettings.bossDefinition;
       if (definition != null) {
@@ -342,11 +447,19 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
     _handleLevelFailed();
   }
 
+  /// Debug helper: instantly trigger level completion.
+  void debugForceWin() {
+    if (kDebugMode) {
+      _handleLevelComplete(boss: _currentLevelSettings.isBossLevel);
+    }
+  }
+
   void _handleLevelFailed() {
     if (_levelFailedTriggered || _levelCompleteTriggered) {
       return;
     }
     _levelFailedTriggered = true;
+    appleCoins.value = _appleCoinsAtLevelStart;
     levelFailed.value = true;
     pauseEngine();
   }
@@ -360,6 +473,12 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
 
   int get initialKnifeCount => _initialKnifeCount;
 
+    BossLevelDefinition? get currentBossDefinition =>
+      _currentLevelSettings.bossDefinition;
+
+    String? get currentBossRewardAsset =>
+      _currentLevelSettings.bossDefinition?.rewardKnifeAsset;
+
   LevelStateSnapshot? _captureLevelSnapshot() {
     if (_levelCompleteTriggered || _levelFailedTriggered) {
       return null;
@@ -367,12 +486,16 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
     if (!target.isLoaded) {
       return null;
     }
-    return LevelStateSnapshot(
+    final LevelStateSnapshot snapshot = LevelStateSnapshot(
       levelIndex: levelIndex,
       knivesRemaining: knivesRemaining,
       initialKnifeCount: _initialKnifeCount,
       targetState: target.snapshotState(),
     );
+    if (kDebugMode) {
+      debugPrint('[LevelCapture] knives=${snapshot.targetState.stuckKnives.length} apples=${snapshot.targetState.appleSnapshots.length} remaining=$knivesRemaining');
+    }
+    return snapshot;
   }
 
   GameProgress snapshotProgress() {
@@ -425,6 +548,16 @@ class TargetComponent extends PositionComponent
   double _bossCurrentSpeed = 0;
   double _bossTargetSpeed = 0;
   double _bossSpeedTimer = 0;
+  List<AppleSnapshot>? _pendingAppleSnapshots;
+  bool _awaitingAppleMount = false;
+  List<StuckKnifeSnapshot>? _pendingStuckSnapshots;
+  bool _awaitingStuckMount = false;
+
+  void _logSpawn(String message) {
+    if (kDebugMode) {
+      debugPrint('[TargetSpawn] $message');
+    }
+  }
 
   @override
   Future<void> onLoad() async {
@@ -462,20 +595,24 @@ class TargetComponent extends PositionComponent
     }
   }
 
-  void _seedApples({
+  Future<void> _seedApples({
     required math.Random random,
     required int count,
     required List<_AngleReservation> reservedAngles,
-  }) {
+  }) async {
+    _logSpawn('seedApples count=$count (boss=${gameRef._currentLevelSettings.isBossLevel})');
     if (count <= 0) {
+      _pendingAppleSnapshots = null;
+      _awaitingAppleMount = false;
       return;
     }
 
-    const double topAngle = -math.pi / 2; // straight up relative to the log
-    const double halfSpread = math.pi / 12; // ±15° window around the top
+    const double topAngle = -math.pi / 2;
+    const double halfSpread = math.pi / 12;
     final double appleHalfWidth =
         _computeArcHalfWidth(AppleComponent._appleDiameter) +
             _appleArcInflation;
+    final List<AppleSnapshot> seeded = [];
 
     for (int i = 0; i < count; i++) {
       double angle = _normalizeAngle(
@@ -493,11 +630,22 @@ class TargetComponent extends PositionComponent
         continue;
       }
       reservedAngles.add(_AngleReservation(angle, appleHalfWidth));
-      add(AppleComponent(
+      await add(AppleComponent(
         angleRadians: angle,
         margin: -0.1,
       ));
+      _logSpawn('  apple index=$i angle=${angle.toStringAsFixed(3)} guard=$guard');
+      seeded.add(AppleSnapshot(angle: angle, margin: -0.1));
     }
+    if (seeded.isNotEmpty) {
+      _pendingAppleSnapshots = List<AppleSnapshot>.from(seeded);
+      _awaitingAppleMount = true;
+    } else {
+      _pendingAppleSnapshots = null;
+      _awaitingAppleMount = false;
+    }
+    final totalApples = children.whereType<AppleComponent>().length;
+    _logSpawn('seedApples total components=$totalApples');
   }
 
   Future<void> resetForLevel({
@@ -505,18 +653,30 @@ class TargetComponent extends PositionComponent
     required LevelSettings settings,
     TargetStateSnapshot? snapshot,
   }) async {
+    _logSpawn('resetForLevel level=${gameRef.levelIndex} boss=${settings.isBossLevel} snapshot=${snapshot != null}');
     _randomSource = random;
     for (final apple in children.whereType<AppleComponent>().toList()) {
       apple.removeFromParent();
     }
+    _pendingAppleSnapshots = null;
+    _awaitingAppleMount = false;
+    final stuckBeforeClear =
+        children.whereType<StuckKnifeComponent>().length;
+    _logSpawn('resetForLevel clearing stuck knives count=$stuckBeforeClear');
+    _pendingStuckSnapshots = null;
+    _awaitingStuckMount = false;
     for (final stuck in children.whereType<StuckKnifeComponent>().toList()) {
       stuck.removeFromParent();
     }
+    await Future<void>.delayed(Duration.zero);
+    final stuckAfterClear =
+        children.whereType<StuckKnifeComponent>().length;
+    _logSpawn('resetForLevel cleared stuck knives remaining=$stuckAfterClear');
     final bool restoring = snapshot != null;
     if (!restoring && !settings.isBossLevel) {
       final List<_AngleReservation> reservedAngles = [];
       final int applesToSpawn = settings.randomAppleCount(random);
-      _seedApples(
+      await _seedApples(
         random: random,
         count: applesToSpawn,
         reservedAngles: reservedAngles,
@@ -533,21 +693,52 @@ class TargetComponent extends PositionComponent
   }
 
   TargetStateSnapshot snapshotState() {
-    final List<AppleSnapshot> appleStates = [
-      for (final apple in children.whereType<AppleComponent>())
-        AppleSnapshot(angle: apple.angleRadians, margin: apple.margin),
-    ];
-    final List<StuckKnifeSnapshot> stuckStates = [
-      for (final stuck in children.whereType<StuckKnifeComponent>())
-        StuckKnifeSnapshot(
-          assetKey: stuck.assetKey,
-          localX: stuck.position.x,
-          localY: stuck.position.y,
-          angle: stuck.angle,
-        ),
-    ];
+    _logSpawn('snapshotState start');
+    final Iterable<AppleComponent> appleComponents =
+        children.whereType<AppleComponent>();
+    late final List<AppleSnapshot> appleStates;
+    if (appleComponents.isEmpty) {
+      if (_awaitingAppleMount && _pendingAppleSnapshots != null) {
+        appleStates = List<AppleSnapshot>.from(_pendingAppleSnapshots!);
+        _logSpawn('  apples pending fallback count=${appleStates.length}');
+      } else {
+        appleStates = <AppleSnapshot>[];
+      }
+    } else {
+      appleStates = [
+        for (final apple in appleComponents)
+          AppleSnapshot(angle: apple.angleRadians, margin: apple.margin),
+      ];
+      _logSpawn('  apples from components count=${appleStates.length}');
+      _awaitingAppleMount = false;
+      _pendingAppleSnapshots = null;
+    }
+    final Iterable<StuckKnifeComponent> stuckComponents =
+        children.whereType<StuckKnifeComponent>();
+    List<StuckKnifeSnapshot> stuckStates;
+    final bool hasPending = _pendingStuckSnapshots != null;
+    if (_awaitingStuckMount && hasPending) {
+      stuckStates = List<StuckKnifeSnapshot>.from(_pendingStuckSnapshots!);
+      _logSpawn(
+        '  stuck pending fallback count=${stuckStates.length} actual=${stuckComponents.length}',
+      );
+      _awaitingStuckMount = false;
+      _pendingStuckSnapshots = null;
+    } else {
+      stuckStates = [
+        for (final stuck in stuckComponents)
+          StuckKnifeSnapshot(
+            assetKey: stuck.assetKey,
+            localX: stuck.position.x,
+            localY: stuck.position.y,
+            angle: stuck.angle,
+          ),
+      ];
+      _logSpawn('  stuck from components count=${stuckStates.length}');
+    }
     final double? directionTimer =
         _timeUntilDirectionFlip.isFinite ? _timeUntilDirectionFlip : null;
+    _logSpawn('snapshotState done apples=${appleStates.length} stuck=${stuckStates.length}');
     return TargetStateSnapshot(
       angle: angle,
       clockwise: clockwise,
@@ -562,6 +753,7 @@ class TargetComponent extends PositionComponent
   }
 
   Future<void> _applySnapshot(TargetStateSnapshot snapshot) async {
+    _logSpawn('applySnapshot apples=${snapshot.appleSnapshots.length} stuck=${snapshot.stuckKnives.length}');
     angle = snapshot.angle;
     clockwise = snapshot.clockwise;
     _rotationSpeed = snapshot.rotationSpeed;
@@ -578,33 +770,52 @@ class TargetComponent extends PositionComponent
     }
 
     final Map<String, Sprite> spriteCache = {};
-    for (final AppleSnapshot apple in snapshot.appleSnapshots) {
-      add(AppleComponent(
-        angleRadians: apple.angle,
-        margin: apple.margin,
-      ));
-    }
+    if (!gameRef._currentLevelSettings.isBossLevel) {
+      if (snapshot.appleSnapshots.isNotEmpty) {
+        _pendingAppleSnapshots = List<AppleSnapshot>.from(snapshot.appleSnapshots);
+        _awaitingAppleMount = true;
+      } else {
+        _pendingAppleSnapshots = null;
+        _awaitingAppleMount = false;
+      }
+      if (snapshot.stuckKnives.isNotEmpty) {
+        _pendingStuckSnapshots = List<StuckKnifeSnapshot>.from(snapshot.stuckKnives);
+        _awaitingStuckMount = true;
+      } else {
+        _pendingStuckSnapshots = null;
+        _awaitingStuckMount = false;
+      }
+      for (final AppleSnapshot apple in snapshot.appleSnapshots) {
+        await add(AppleComponent(
+          angleRadians: apple.angle,
+          margin: apple.margin,
+        ));
+        _logSpawn('  restored apple angle=${apple.angle.toStringAsFixed(3)}');
+      }
 
-    for (final StuckKnifeSnapshot stuck in snapshot.stuckKnives) {
-      if (stuck.assetKey.isEmpty) {
-        continue;
+      for (final StuckKnifeSnapshot stuck in snapshot.stuckKnives) {
+        if (stuck.assetKey.isEmpty) {
+          continue;
+        }
+        if (!spriteCache.containsKey(stuck.assetKey)) {
+          spriteCache[stuck.assetKey] =
+              await gameRef.loadSprite(stuck.assetKey);
+        }
+        final Sprite? sprite = spriteCache[stuck.assetKey];
+        if (sprite == null) {
+          continue;
+        }
+        final stuckComponent = StuckKnifeComponent(assetKey: stuck.assetKey)
+          ..sprite = sprite
+          ..size = Vector2(40, 120)
+          ..anchor = Anchor.center
+          ..position = Vector2(stuck.localX, stuck.localY)
+          ..angle = stuck.angle
+          ..priority = 0;
+        await add(stuckComponent);
+        _logSpawn('  restored stuck asset=${stuck.assetKey} pos=(${stuck.localX.toStringAsFixed(1)}, ${stuck.localY.toStringAsFixed(1)}) angle=${stuck.angle.toStringAsFixed(3)}');
       }
-      if (!spriteCache.containsKey(stuck.assetKey)) {
-        spriteCache[stuck.assetKey] =
-            await gameRef.loadSprite(stuck.assetKey);
-      }
-      final Sprite? sprite = spriteCache[stuck.assetKey];
-      if (sprite == null) {
-        continue;
-      }
-      final stuckComponent = StuckKnifeComponent(assetKey: stuck.assetKey)
-        ..sprite = sprite
-        ..size = Vector2(40, 120)
-        ..anchor = Anchor.center
-        ..position = Vector2(stuck.localX, stuck.localY)
-        ..angle = stuck.angle
-        ..priority = 0;
-      add(stuckComponent);
+      _logSpawn('applySnapshot restored apples=${snapshot.appleSnapshots.length} stuck=${snapshot.stuckKnives.length}');
     }
 
     _applyLayout();
@@ -614,13 +825,16 @@ class TargetComponent extends PositionComponent
     required math.Random random,
     required List<_AngleReservation> reservedAngles,
   }) async {
+    _logSpawn('seedInitialStuckKnives start');
     final int count = 1 + random.nextInt(2);
-    final Sprite knifeSprite = await gameRef.loadSprite(AssetPaths.knifeTanto);
+    final String assetKey = gameRef.equippedKnifeAsset;
+    final Sprite knifeSprite = await gameRef.loadSprite(assetKey);
     final double radius = size.x / 2;
     const double penetration = 1;
     const double knifeVisualWidth = 40;
     final double knifeHalfWidth =
         _computeArcHalfWidth(knifeVisualWidth) + _knifeArcInflation;
+    final List<StuckKnifeSnapshot> seeded = [];
 
     for (int i = 0; i < count; i++) {
       double angle = _normalizeAngle(random.nextDouble() * math.pi * 2);
@@ -637,15 +851,38 @@ class TargetComponent extends PositionComponent
 
       final Vector2 offset =
           Vector2(math.cos(angle), math.sin(angle)) * (radius - penetration);
-      final stuck = StuckKnifeComponent(assetKey: AssetPaths.knifeTanto)
+      final Vector2 localPosition = size / 2 + offset;
+      final double localAngle = angle + math.pi / 2 + math.pi;
+      final stuck = StuckKnifeComponent(assetKey: assetKey)
         ..sprite = knifeSprite
         ..size = Vector2(40, 120)
         ..anchor = Anchor.center
-        ..position = size / 2 + offset
-        ..angle = angle + math.pi / 2 + math.pi
+        ..position = localPosition
+        ..angle = localAngle
         ..priority = 0;
-      add(stuck);
+      await add(stuck);
+      _logSpawn('  stuck seed index=$i pos=(${localPosition.x.toStringAsFixed(1)}, ${localPosition.y.toStringAsFixed(1)}) angle=${localAngle.toStringAsFixed(3)} guard=$guard');
+      seeded.add(
+        StuckKnifeSnapshot(
+          assetKey: assetKey,
+          localX: localPosition.x,
+          localY: localPosition.y,
+          angle: localAngle,
+        ),
+      );
     }
+    if (seeded.isNotEmpty) {
+      _pendingStuckSnapshots = List<StuckKnifeSnapshot>.from(seeded);
+      _awaitingStuckMount = true;
+      _logSpawn('seedInitialStuckKnives pending cached=${seeded.length}');
+    } else {
+      _pendingStuckSnapshots = null;
+      _awaitingStuckMount = false;
+      _logSpawn('seedInitialStuckKnives produced none');
+    }
+    final totalAfterSeed =
+        children.whereType<StuckKnifeComponent>().length;
+    _logSpawn('seedInitialStuckKnives total children count=$totalAfterSeed');
   }
 
   void _applyLevelSettings(LevelSettings settings, math.Random random) {
@@ -797,12 +1034,77 @@ class TargetComponent extends PositionComponent
   }
 
   void shake() {
+    // Enhanced shake with rotation wobble
     add(
       SequenceEffect([
-        ScaleEffect.to(Vector2.all(0.98), EffectController(duration: 0.05)),
-        ScaleEffect.to(Vector2.all(1), EffectController(duration: 0.05)),
+        ScaleEffect.to(Vector2.all(0.96), EffectController(duration: 0.04)),
+        ScaleEffect.to(Vector2.all(1.02), EffectController(duration: 0.04)),
+        ScaleEffect.to(Vector2.all(1), EffectController(duration: 0.04)),
       ]),
     );
+    
+    // Add white flash overlay effect
+    _addWhiteFlash();
+    
+    // Spawn impact particles
+    _spawnImpactParticles();
+  }
+  
+  /// Creates a white flash overlay that fades quickly
+  void _addWhiteFlash() {
+    final flashPaint = ui.Paint()..color = const ui.Color(0xFFFFFFFF);
+    final flashOverlay = CircleComponent(
+      radius: size.x / 2,
+      paint: flashPaint,
+      anchor: Anchor.center,
+      position: size / 2,
+      priority: 10,
+    );
+    
+    flashOverlay.add(
+      OpacityEffect.fadeOut(
+        EffectController(duration: 0.15, curve: Curves.easeOut),
+        onComplete: () => flashOverlay.removeFromParent(),
+      ),
+    );
+    
+    add(flashOverlay);
+  }
+  
+  /// Spawns particle effects around the impact point
+  void _spawnImpactParticles() {
+    final random = math.Random();
+    final particleCount = 8;
+    
+    for (int i = 0; i < particleCount; i++) {
+      final angle = (i / particleCount) * 2 * math.pi;
+      final velocity = Vector2(
+        math.cos(angle) * (50 + random.nextDouble() * 30),
+        math.sin(angle) * (50 + random.nextDouble() * 30),
+      );
+      
+      final particlePaint = ui.Paint()..color = ui.Color.lerp(
+        const ui.Color(0xFFFFD700),
+        const ui.Color(0xFFFFFFFF),
+        random.nextDouble(),
+      )!;
+      
+      final particle = ParticleSystemComponent(
+        particle: AcceleratedParticle(
+          lifespan: 0.3 + random.nextDouble() * 0.2,
+          speed: velocity,
+          acceleration: velocity * -2, // decelerate
+          child: CircleParticle(
+            radius: 2 + random.nextDouble() * 2,
+            paint: particlePaint,
+          ),
+        ),
+        position: size / 2,
+        priority: 5,
+      );
+      
+      add(particle);
+    }
   }
 
   void _tickBossRotation(double dt) {
@@ -910,6 +1212,23 @@ class KnifeComponent extends SpriteComponent
   // When >0, skip update logic for this many frames (prevents races during reparent)
   int _skipUpdates = 0;
   bool _collisionHandled = false;
+  
+  // --- Idle animation support ------------------------------------------------
+  Effect? _idleEffect;
+  
+  /// Removes the idle floating animation if present
+  void removeIdleAnimation() {
+    if (_idleEffect != null) {
+      _idleEffect!.removeFromParent();
+      _idleEffect = null;
+    }
+  }
+  
+  /// Sets the idle animation effect
+  void setIdleEffect(Effect effect) {
+    removeIdleAnimation();
+    _idleEffect = effect;
+  }
 
   @override
   void update(double dt) {
@@ -1092,19 +1411,52 @@ class KnifeComponent extends SpriteComponent
     // so reset combo tracking to avoid rewarding a follow-up combo.
     gameRef._comboCount = 0;
 
+    // Enhanced bounce animation with parabolic trajectory and rotation
+    final random = math.Random();
+    final horizontalBounce = (random.nextDouble() - 0.5) * 150; // Random left/right
+    final initialRetreat = retreatDir * 80;
+    
+    // Add spinning rotation effect
+    add(
+      RotateEffect.by(
+        math.pi * 4 * (random.nextBool() ? 1 : -1), // 4 full rotations, random direction
+        EffectController(duration: 0.6, curve: Curves.easeOut),
+      ),
+    );
+    
+    // Parabolic bounce trajectory
     add(
       SequenceEffect([
+        // Initial retreat (fast)
         MoveEffect.by(
-          retreatDir * 70,
-          EffectController(duration: 0.12, curve: Curves.easeOut),
+          initialRetreat,
+          EffectController(duration: 0.1, curve: Curves.easeOut),
         ),
+        // Arc to the side with parabolic curve
         MoveEffect.by(
-          Vector2(0, 260),
-          EffectController(duration: 0.28, curve: Curves.easeIn),
+          Vector2(horizontalBounce, -40),
+          EffectController(duration: 0.25, curve: Curves.easeOutCubic),
+        ),
+        // Fall down with gravity effect (parabolic)
+        MoveEffect.by(
+          Vector2(horizontalBounce * 0.3, 900),
+          EffectController(duration: 0.5, curve: Curves.easeIn),
         ),
       ]),
     );
-    unawaited(Future<void>.delayed(const Duration(milliseconds: 450), () {
+    
+    // Fade out during fall
+    add(
+      OpacityEffect.fadeOut(
+        EffectController(
+          duration: 0.6,
+          startDelay: 0.2,
+          curve: Curves.easeIn,
+        ),
+      ),
+    );
+    
+    unawaited(Future<void>.delayed(const Duration(milliseconds: 900), () {
       if (!isMounted) {
         return;
       }

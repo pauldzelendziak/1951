@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:knife_hit/core/constants/colors.dart';
 import 'package:knife_hit/data/models/game_progress.dart';
 import 'package:knife_hit/data/storage/game_progress_storage.dart';
+import 'package:knife_hit/presentation/screens/achievements_screen.dart';
 import 'package:knife_hit/presentation/screens/game_screen.dart';
+import 'package:knife_hit/presentation/screens/knife_shop_screen.dart';
+import 'package:knife_hit/presentation/screens/stats_screen.dart';
 
 /// Home screen of the game showing main actions: Play, Shop, Stats, etc.
 class HomeScreen extends StatefulWidget {
@@ -18,6 +21,7 @@ class _HomeScreenState extends State<HomeScreen> {
   GameProgress? _cachedProgress;
   bool _loading = true;
   final GameProgressStorage _progressStorage = const GameProgressStorage();
+  int _progressLoadToken = 0;
 
   @override
   void initState() {
@@ -26,13 +30,27 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadProgress() async {
+    final int requestId = ++_progressLoadToken;
     final GameProgress? progress = await _progressStorage.read();
-    if (!mounted) {
+    if (!mounted || requestId != _progressLoadToken) {
       return;
     }
     setState(() {
       _cachedProgress = progress;
       _loading = false;
+    });
+  }
+
+  void _applyCachedProgress(GameProgress? progress, {bool? loading}) {
+    _progressLoadToken++;
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _cachedProgress = progress;
+      if (loading != null) {
+        _loading = loading;
+      }
     });
   }
 
@@ -85,23 +103,26 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _continueGame() async {
-    final GameProgress? progress = _cachedProgress ?? await _progressStorage.read();
+    final GameProgress? progress = await _progressStorage.read();
     if (progress == null) {
       await _startNewGame();
       return;
     }
+    _applyCachedProgress(progress);
     await _launchGame(progress);
   }
 
   Future<void> _startNewGame() async {
-    await _progressStorage.clear();
-    if (mounted) {
-      setState(() {
-        _cachedProgress = null;
-        _loading = false;
-      });
-    }
-    await _launchGame(null);
+    final GameProgress? previous =
+        _cachedProgress ?? await _progressStorage.read();
+    final GameProgress baseline = GameProgress.initial().copyWith(
+      appleCoins: previous?.appleCoins ?? 0,
+      unlockedKnifeAssets: previous?.unlockedKnifeAssets,
+      equippedKnifeAsset: previous?.equippedKnifeAsset,
+    );
+    await _progressStorage.write(baseline);
+    _applyCachedProgress(baseline, loading: false);
+    await _launchGame(baseline);
   }
 
   Future<void> _launchGame(GameProgress? progress) async {
@@ -110,13 +131,43 @@ class _HomeScreenState extends State<HomeScreen> {
         _loading = true;
       });
     }
-    await Navigator.push<void>(
+    final GameProgress? updated = await Navigator.push<GameProgress>(
       context,
-      MaterialPageRoute<void>(
+      MaterialPageRoute<GameProgress>(
         builder: (_) => GameScreen(initialProgress: progress),
       ),
     );
-    await _loadProgress();
+    if (!mounted) {
+      return;
+    }
+    if (updated != null) {
+      _applyCachedProgress(updated, loading: false);
+    } else {
+      await _loadProgress();
+    }
+  }
+
+  Future<void> _openShop() async {
+    final GameProgress baseProgress =
+        _cachedProgress ?? await _progressStorage.read() ?? GameProgress.initial();
+    final GameProgress? updated = await Navigator.push<GameProgress>(
+      context,
+      MaterialPageRoute<GameProgress>(
+        builder: (_) => KnifeShopScreen(initialProgress: baseProgress),
+      ),
+    );
+    if (updated != null) {
+      await _progressStorage.write(updated);
+      _applyCachedProgress(updated);
+    }
+  }
+
+  Future<void> _openAchievements() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => const AchievementsScreen(),
+      ),
+    );
   }
 
   @override
@@ -135,7 +186,7 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
             child: Column(
               children: [
-                const _TopBar(),
+                _TopBar(onShopTap: _openShop),
                 const Spacer(flex: 2),
                 const _GameLogo(),
                 const SizedBox(height: 32),
@@ -145,7 +196,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: Icons.emoji_events_outlined,
                   label: 'Achievements',
                   diameter: 96,
-                  onTap: () {},
+                  onTap: _openAchievements,
                 ),
                 const Spacer(flex: 3),
                 const _BottomActions(),
@@ -161,7 +212,9 @@ class _HomeScreenState extends State<HomeScreen> {
 enum _PlaySelection { continueGame, newGame }
 
 class _TopBar extends StatelessWidget {
-  const _TopBar();
+  const _TopBar({required this.onShopTap});
+
+  final VoidCallback onShopTap;
 
   @override
   Widget build(BuildContext context) {
@@ -176,14 +229,19 @@ class _TopBar extends StatelessWidget {
         HomeIconButton(
           icon: Icons.bar_chart_rounded,
           label: 'Stats',
-          onTap: () {},
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const StatsScreen(),
+              ),
+            );
+          },
         ),
         Text('KNIFE HIT', style: titleStyle),
         HomeIconButton(
           icon: Icons.storefront_outlined,
-          
           label: 'Shop',
-          onTap: () {},
+          onTap: onShopTap,
         ),
       ],
     );
@@ -212,7 +270,6 @@ class _GameLogo extends StatelessWidget {
       ),
       child: const Icon(
         Icons.sports_martial_arts,
-        size: 72,
         color: AppColors.textPrimary,
       ),
     );
