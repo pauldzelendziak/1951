@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:knife_hit/core/constants/colors.dart';
-import 'package:knife_hit/presentation/screens/home_screen.dart';
+import 'package:knife_hit/presentation/screens/loading_screen.dart';
 
 /// Root widget that wires up app-wide theme and navigation.
 /// The root widget for the Knife Hit application.
@@ -33,7 +33,7 @@ class KnifeHitApp extends StatelessWidget {
         ),
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: const HomeScreen(),
+      home: const LoadingScreen(),
     );
   }
 }

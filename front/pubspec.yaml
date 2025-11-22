@@ -38,7 +38,20 @@ flutter:
   - assets/fonts/
   - assets/images/targets/
   - assets/images/knives/
-  - assets/audio/
+  - assets/audio/achievement_unlock.wav
+  - assets/audio/apple_hit.wav
+  - assets/audio/boss_appear.wav
+  - assets/audio/boss_defeat.wav
+  - assets/audio/button_click.wav
+  - assets/audio/game_over.wav
+  - assets/audio/knife_hit.wav
+  - assets/audio/knife_miss.wav
+  - assets/audio/knife_throw.wav
+  - assets/audio/knife_unlock.wav
+  - assets/audio/level_complete.wav
+  - assets/audio/music/menu_music.mp3
+  - assets/audio/music/game_music.mp3
+  - assets/audio/music/boss_music.mp3
 
 flutter_launcher_icons:
   android: true

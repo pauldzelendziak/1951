@@ -6,7 +6,6 @@ import 'package:flame/collisions.dart';
 import 'package:flame/effects.dart';
 import 'package:flame/game.dart';
 import 'package:flame/particles.dart';
-import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/animation.dart' show Curves;
 import 'package:flutter/foundation.dart';
 // No Flutter widgets are required directly here; Flame provides the game APIs.
@@ -17,6 +16,7 @@ import 'package:knife_hit/data/models/game_progress.dart';
 import 'package:knife_hit/data/models/level_state_snapshot.dart';
 import 'package:knife_hit/game/boss_levels.dart';
 import 'package:knife_hit/game/level_settings.dart';
+import 'package:knife_hit/services/sound_manager.dart';
 
 /// Main Flame game instance hosting the playfield and game state.
 class KnifeHitGame extends FlameGame with HasCollisionDetection {
@@ -111,6 +111,7 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
   @override
   Future<void> onLoad() async {
     await super.onLoad();
+    await SoundManager.instance.init();
 
     // Додаємо дерево по центру
     // Debug: print the asset key we are about to load for the target
@@ -177,6 +178,7 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
     final dir = (targetComp.absoluteCenter - next.absoluteCenter).normalized();
 
     next.throwKnife(dir);
+    unawaited(SoundManager.instance.play(SoundEffect.knifeThrow));
     _sessionKnivesThrown += 1;
     knivesRemaining = math.max(0, knivesRemaining - 1);
     knivesLeft.value = knivesRemaining;
@@ -215,6 +217,7 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
       _comboCount = 1;
     }
     _lastStickAt = now;
+    unawaited(SoundManager.instance.play(SoundEffect.knifeHit));
 
     double multiplier = _comboCount >= 3 ? 1.5 : 1.0;
     int base = 10;
@@ -312,6 +315,7 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
     LevelStateSnapshot? levelSnapshot,
     bool restoreKnifeState = true,
   }) async {
+    await SoundManager.instance.stopAll();
     _currentLevelSettings =
         settingsOverride ?? LevelSettings.forLevel(levelIndex);
     _sessionHighestLevelReached =
@@ -422,6 +426,11 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
       return;
     }
     _levelCompleteTriggered = true;
+    unawaited(() async {
+      await SoundManager.instance.stopAll();
+      await SoundManager.instance
+          .play(boss ? SoundEffect.bossDefeat : SoundEffect.levelComplete);
+    }());
     awardLevelComplete(boss: boss);
     lastLevelScore = score.value;
     levelCompleted.value = true;
@@ -459,6 +468,10 @@ class KnifeHitGame extends FlameGame with HasCollisionDetection {
       return;
     }
     _levelFailedTriggered = true;
+    unawaited(() async {
+      await SoundManager.instance.stopAll();
+      await SoundManager.instance.play(SoundEffect.gameOver);
+    }());
     appleCoins.value = _appleCoinsAtLevelStart;
     levelFailed.value = true;
     pauseEngine();
@@ -1406,7 +1419,7 @@ class KnifeComponent extends SpriteComponent
         direction.length2 < 1e-6 ? Vector2(0, -1) : -direction.normalized();
     direction = Vector2.zero();
     gameRef.triggerSlowMotion(scale: 0.3, duration: 0.5);
-    unawaited(_playKnifeCollisionSound());
+    unawaited(SoundManager.instance.play(SoundEffect.knifeMiss));
     // Collision with an already-stuck knife is not a successful stick,
     // so reset combo tracking to avoid rewarding a follow-up combo.
     gameRef._comboCount = 0;
@@ -1467,13 +1480,6 @@ class KnifeComponent extends SpriteComponent
     }));
   }
 
-  Future<void> _playKnifeCollisionSound() async {
-    try {
-      await FlameAudio.play(AssetPaths.knifeClashSfx);
-    } on Object {
-      // Tolerate missing audio assets silently for now.
-    }
-  }
 }
 
 /// A simple, static component representing a knife stuck in the target.
@@ -1549,7 +1555,7 @@ class AppleComponent extends PositionComponent with HasGameRef<KnifeHitGame> {
     _wholeSpriteComponent.opacity = 0;
     _spawnSlices();
     _spawnJuice();
-    unawaited(_playSound());
+    unawaited(SoundManager.instance.play(SoundEffect.appleHit));
     gameRef.addAppleCoin();
     removeFromParent();
   }
@@ -1604,14 +1610,6 @@ class AppleComponent extends PositionComponent with HasGameRef<KnifeHitGame> {
         priority: 4,
       ),
     );
-  }
-
-  Future<void> _playSound() async {
-    try {
-      await FlameAudio.play(AssetPaths.appleSliceSfx);
-    } on Object {
-      // Missing audio assets are tolerated silently for now.
-    }
   }
 
   static const List<ui.Color> _juicePalette = [

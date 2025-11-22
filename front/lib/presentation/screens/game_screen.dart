@@ -7,12 +7,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
 import 'package:knife_hit/core/constants/colors.dart';
+import 'package:knife_hit/data/models/achievement_definition.dart';
 import 'package:knife_hit/data/models/game_progress.dart';
 import 'package:knife_hit/data/models/knife_catalog.dart';
+import 'package:knife_hit/data/models/player_stats.dart';
 import 'package:knife_hit/data/storage/game_progress_storage.dart';
 import 'package:knife_hit/data/storage/player_stats_storage.dart';
+import 'package:knife_hit/game/achievement_tracker.dart';
+import 'package:knife_hit/game/boss_levels.dart';
 import 'package:knife_hit/game/level_settings.dart';
 import 'package:knife_hit/game/knife_hit_game.dart';
+import 'package:knife_hit/presentation/widgets/achievement_notification.dart';
+import 'package:knife_hit/presentation/widgets/boss_appear_popup.dart';
+import 'package:knife_hit/services/background_music_manager.dart';
+import 'package:knife_hit/services/sound_manager.dart';
 
 /// Fullscreen screen that hosts the Flame [KnifeHitGame].
 class GameScreen extends StatefulWidget {
@@ -39,11 +47,13 @@ class _GameScreenState extends State<GameScreen> {
   bool _returningHome = false;
   final GameProgressStorage _progressStorage = const GameProgressStorage();
   final PlayerStatsStorage _statsStorage = const PlayerStatsStorage();
+  final AchievementTracker _achievementTracker = AchievementTracker();
   bool _autosaveScheduled = false;
   late final TextEditingController _levelJumpController;
   late DateTime _sessionStart;
   bool _statsFlushed = false;
   Future<void>? _statsInitFuture;
+  Timer? _achievementCheckTimer;
 
   @override
   void initState() {
@@ -69,6 +79,8 @@ class _GameScreenState extends State<GameScreen> {
     }();
 
     _game = KnifeHitGame(initialProgress: widget.initialProgress);
+    unawaited(SoundManager.instance.init());
+    unawaited(BackgroundMusicManager.instance.play(BackgroundTrack.game));
     _appleCoins = _game.appleCoins;
     _knivesLeft = _game.knivesLeft;
     _scoreNotifier = _game.score;
@@ -81,6 +93,111 @@ class _GameScreenState extends State<GameScreen> {
     _attachAutosaveListeners();
     _scheduleAutosave();
     _statsInitFuture = _recordGameStart();
+    _initializeAchievementTracking();
+    _attachBossLevelListener();
+  }
+  
+  Future<void> _initializeAchievementTracking() async {
+    // Initialize tracker with current stats to avoid false positives
+    final stats = await _statsStorage.read();
+    _achievementTracker.initialize(stats);
+    
+    // Listen to score changes to check achievements in real-time
+    _scoreNotifier.addListener(_onScoreChanged);
+  }
+  
+  void _attachBossLevelListener() {
+    _game.isBossLevel.addListener(_onBossLevelChanged);
+  }
+  
+  void _onBossLevelChanged() {
+    if (!mounted) return;
+    if (_game.isBossLevel.value) {
+      final int level = _game.levelIndex;
+      final BossLevelDefinition? bossDef = BossLevels.definitionForLevel(level);
+      if (bossDef != null) {
+        unawaited(BackgroundMusicManager.instance.play(BackgroundTrack.boss));
+        final String bossName = _getBossName(level);
+        // First play boss appear sound, then after a short delay show popup.
+        unawaited(SoundManager.instance.play(SoundEffect.bossAppear));
+        Future.delayed(const Duration(milliseconds: 350), () {
+          if (mounted) {
+            BossAppearPopup.show(
+              context,
+              bossLevel: level,
+              bossName: bossName,
+            );
+          }
+        });
+      } else {
+        unawaited(BackgroundMusicManager.instance.play(BackgroundTrack.game));
+      }
+    } else {
+      unawaited(BackgroundMusicManager.instance.play(BackgroundTrack.game));
+    }
+  }
+  
+  String _getBossName(int level) {
+    switch (level) {
+      case 5:
+        return 'Cheese Wheel';
+      case 10:
+        return 'Tomato King';
+      case 15:
+        return 'Lemon Lord';
+      case 20:
+        return 'Sushi Master';
+      case 25:
+        return 'Donut Emperor';
+      case 30:
+        return 'Tire Titan';
+      case 35:
+        return 'Shield Guardian';
+      case 40:
+        return 'Vinyl Spinner';
+      case 45:
+        return 'Compass Navigator';
+      case 50:
+        return 'Final Boss';
+      default:
+        return 'Boss';
+    }
+  }
+  
+  void _onScoreChanged() {
+    // Debounce achievement checks to avoid too many calls
+    _achievementCheckTimer?.cancel();
+    _achievementCheckTimer = Timer(
+      const Duration(milliseconds: 500),
+      () => _checkAchievements(),
+    );
+  }
+  
+  Future<void> _checkAchievements() async {
+    if (!mounted) return;
+    
+    try {
+      // Get base stats and add current session data
+      final baseStats = await _statsStorage.read();
+      final currentStats = baseStats.copyWith(
+        totalKnivesThrown: baseStats.totalKnivesThrown + _game.sessionKnivesThrown,
+        successfulHits: baseStats.successfulHits + _game.sessionSuccessfulHits,
+        totalApplesHit: baseStats.totalApplesHit + _game.sessionApplesHit,
+        bossFightsWon: baseStats.bossFightsWon + _game.sessionBossWins,
+        maxLevelReached: math.max(baseStats.maxLevelReached, _game.sessionHighestLevelReached),
+        totalScore: baseStats.totalScore + _game.sessionScoreEarned,
+      ).recalculateAccuracy();
+      
+      final newAchievements = _achievementTracker.checkForNewAchievements(currentStats);
+      
+      for (final achievement in newAchievements) {
+        if (mounted) {
+          AchievementNotification.show(context, achievement);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error checking achievements: $e');
+    }
   }
 
   Future<void> _handleNextLevel() async {
@@ -192,6 +309,8 @@ class _GameScreenState extends State<GameScreen> {
           knivesUnlocked: math.max(stats.knivesUnlocked, knivesUnlocked),
         );
       });
+      // Check for achievements after recording game start
+      unawaited(_checkAchievements());
     } on Object catch (error, stackTrace) {
       debugPrint('Failed to update start-of-game stats: $error');
       debugPrint('$stackTrace');
@@ -243,12 +362,20 @@ class _GameScreenState extends State<GameScreen> {
   }
   @override
   void dispose() {
+    _achievementCheckTimer?.cancel();
+    _scoreNotifier.removeListener(_onScoreChanged);
+    _game.isBossLevel.removeListener(_onBossLevelChanged);
     _removeAutosaveListeners();
     unawaited(_saveProgress());
     unawaited(_ensureStatsFlushed());
     _levelJumpController.dispose();
     _game.pauseEngine();
     _game.onDetach();
+    unawaited(() async {
+      await BackgroundMusicManager.instance.stop();
+      await BackgroundMusicManager.instance.play(BackgroundTrack.menu);
+    }());
+    unawaited(SoundManager.instance.stopAll());
     super.dispose();
   }
 
@@ -292,6 +419,9 @@ class _GameScreenState extends State<GameScreen> {
       debugPrint('Failed to persist player stats: $error');
       debugPrint('$stackTrace');
     }
+    
+    // Check for achievements after stats update
+    unawaited(_checkAchievements());
   }
 
   @override

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'package:knife_hit/core/constants/colors.dart';
@@ -7,6 +9,7 @@ import 'package:knife_hit/presentation/screens/achievements_screen.dart';
 import 'package:knife_hit/presentation/screens/game_screen.dart';
 import 'package:knife_hit/presentation/screens/knife_shop_screen.dart';
 import 'package:knife_hit/presentation/screens/stats_screen.dart';
+import 'package:knife_hit/services/background_music_manager.dart';
 
 /// Home screen of the game showing main actions: Play, Shop, Stats, etc.
 class HomeScreen extends StatefulWidget {
@@ -26,7 +29,12 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _ensureMenuMusic();
     _loadProgress();
+  }
+
+  void _ensureMenuMusic() {
+    unawaited(BackgroundMusicManager.instance.play(BackgroundTrack.menu));
   }
 
   Future<void> _loadProgress() async {
@@ -103,13 +111,45 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _continueGame() async {
-    final GameProgress? progress = await _progressStorage.read();
+    final GameProgress? progress = await _resolveProgressForContinue();
     if (progress == null) {
       await _startNewGame();
       return;
     }
-    _applyCachedProgress(progress);
+    _applyCachedProgress(progress, loading: false);
     await _launchGame(progress);
+  }
+
+  Future<GameProgress?> _resolveProgressForContinue() async {
+    final GameProgress? cached = _cachedProgress;
+    GameProgress? stored;
+    try {
+      stored = await _progressStorage.read();
+    } on Object catch (error, stackTrace) {
+      debugPrint('HomeScreen: failed to read stored progress: $error');
+      debugPrint('$stackTrace');
+    }
+    if (cached == null) {
+      return stored;
+    }
+    if (stored == null) {
+      return cached;
+    }
+    final int cachedLevel =
+        cached.activeLevel?.levelIndex ?? cached.levelIndex;
+    final int storedLevel =
+        stored.activeLevel?.levelIndex ?? stored.levelIndex;
+    if (cachedLevel > storedLevel) {
+      return cached;
+    }
+    if (cachedLevel == storedLevel) {
+      final bool cachedHasSnapshot = cached.activeLevel != null;
+      final bool storedHasSnapshot = stored.activeLevel != null;
+      if (cachedHasSnapshot && !storedHasSnapshot) {
+        return cached;
+      }
+    }
+    return stored;
   }
 
   Future<void> _startNewGame() async {
@@ -137,6 +177,7 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (_) => GameScreen(initialProgress: progress),
       ),
     );
+    _ensureMenuMusic();
     if (!mounted) {
       return;
     }
@@ -156,6 +197,7 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (_) => KnifeShopScreen(initialProgress: baseProgress),
       ),
     );
+    _ensureMenuMusic();
     if (updated != null) {
       await _progressStorage.write(updated);
       _applyCachedProgress(updated);
@@ -168,6 +210,16 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (_) => const AchievementsScreen(),
       ),
     );
+    _ensureMenuMusic();
+  }
+
+  Future<void> _openStats() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => const StatsScreen(),
+      ),
+    );
+    _ensureMenuMusic();
   }
 
   @override
@@ -186,7 +238,10 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
             child: Column(
               children: [
-                _TopBar(onShopTap: _openShop),
+                _TopBar(
+                  onShopTap: _openShop,
+                  onStatsTap: _openStats,
+                ),
                 const Spacer(flex: 2),
                 const _GameLogo(),
                 const SizedBox(height: 32),
@@ -212,9 +267,10 @@ class _HomeScreenState extends State<HomeScreen> {
 enum _PlaySelection { continueGame, newGame }
 
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.onShopTap});
+  const _TopBar({required this.onShopTap, required this.onStatsTap});
 
   final VoidCallback onShopTap;
+  final VoidCallback onStatsTap;
 
   @override
   Widget build(BuildContext context) {
@@ -229,13 +285,7 @@ class _TopBar extends StatelessWidget {
         HomeIconButton(
           icon: Icons.bar_chart_rounded,
           label: 'Stats',
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const StatsScreen(),
-              ),
-            );
-          },
+          onTap: onStatsTap,
         ),
         Text('KNIFE HIT', style: titleStyle),
         HomeIconButton(

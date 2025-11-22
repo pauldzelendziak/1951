@@ -69,11 +69,21 @@ abstract class AssetPaths {
   /// Right half of the cut apple sprite.
   static const String appleCutRight = 'targets/apple_cut_right.webp';
 
-  /// Sound effect triggered when an apple is sliced.
-  static const String appleSliceSfx = 'audio/apple_hit.mp3';
+  /// Short-form audio cues stored under `assets/audio/`.
+  static const String sfxKnifeThrow = 'assets/audio/knife_throw.wav';
+  static const String sfxKnifeHit = 'assets/audio/knife_hit.wav';
+  static const String sfxKnifeMiss = 'assets/audio/knife_miss.wav';
+  static const String sfxAppleHit = 'assets/audio/apple_hit.wav';
+  static const String sfxLevelComplete = 'assets/audio/level_complete.wav';
+  static const String sfxBossAppear = 'assets/audio/boss_appear.wav';
+  static const String sfxBossDefeat = 'assets/audio/boss_defeat.wav';
+  static const String sfxGameOver = 'assets/audio/game_over.wav';
+  static const String sfxAchievementUnlock = 'assets/audio/achievement_unlock.wav';
 
-  /// Sound for knife-on-knife clashes when a throw collides with a stuck blade.
-  static const String knifeClashSfx = 'audio/knife_clash.mp3';
+  /// Background music tracks located under `assets/audio/music/`.
+  static const String musicMenu = 'assets/audio/music/menu_music.mp3';
+  static const String musicGame = 'assets/audio/music/game_music.mp3';
+  static const String musicBoss = 'assets/audio/music/boss_music.mp3';
 
   /// Achievement badge icons located under `assets/images/buttons/`.
   static const String achievementFirstBlood = 'assets/images/buttons/first_blood.webp';
